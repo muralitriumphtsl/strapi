@@ -9,10 +9,11 @@ const {
   contentTypes: contentTypesUtils,
   sanitize,
 } = require('@strapi/utils');
-const { ValidationError, ApplicationError } = require('@strapi/utils').errors;
+const { ValidationError } = require('@strapi/utils').errors;
 const { isAnyToMany } = require('@strapi/utils').relations;
 const { transformParamsToQuery } = require('@strapi/utils').convertQueryParams;
 const uploadFiles = require('../utils/upload-files');
+const validateModifiedRelations = require('./validation/relations');
 
 const {
   omitComponentData,
@@ -42,6 +43,7 @@ const updatePipeline = (data, context) => {
  */
 const createDefaultImplementation = ({ strapi, db, eventHub, entityValidator }) => ({
   uploadFiles,
+  validateModifiedRelations,
 
   async wrapParams(options = {}) {
     return options;
@@ -122,6 +124,8 @@ const createDefaultImplementation = ({ strapi, db, eventHub, entityValidator }) 
     const isDraft = contentTypesUtils.isDraft(data, model);
     const validData = await entityValidator.validateEntityCreation(model, data, { isDraft });
 
+    await this.validateModifiedRelations(data, uid, db);
+
     // select / populate
     const query = transformParamsToQuery(uid, pickSelectionParams(wrappedParams));
 
@@ -170,37 +174,7 @@ const createDefaultImplementation = ({ strapi, db, eventHub, entityValidator }) 
       entityToUpdate
     );
 
-    // Create an array of the relations we are attempting to associate with this
-    // entity.
-    const relationChecks = [];
-    Object.keys(data).forEach((key) => {
-      const attribute = model.attributes[key];
-      if (attribute?.type !== 'relation') {
-        return;
-      }
-      if (!data[key]?.connect) {
-        return;
-      }
-      relationChecks.push({ uid: attribute.target, data: data[key].connect });
-    });
-
-    // Confirm that these relations exists in the DB before performing the query.
-    await Promise.all(
-      relationChecks.map(async (check) => {
-        await Promise.all(
-          check.data.map(async (d) => {
-            const relationEntity = await db.query(check.uid).findOne({ where: { id: d.id } });
-            if (relationEntity) {
-              return;
-            }
-            // Trying to associate a relation with this entity that does not exist
-            throw new ApplicationError(
-              `Relation of type ${check.uid} with id ${d.id} does not exist`
-            );
-          })
-        );
-      })
-    );
+    await this.validateModifiedRelations(data, uid, db);
 
     const query = transformParamsToQuery(uid, pickSelectionParams(wrappedParams));
 

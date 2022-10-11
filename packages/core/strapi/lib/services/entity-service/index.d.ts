@@ -38,6 +38,7 @@ type Params<T> = {
 
 export interface EntityService {
   uploadFiles<K extends keyof AllTypes, T extends AllTypes[K]>(uid: K, entity, files);
+  validateModifiedRelations<K extends keyof AllTypes, T extends AllTypes[K]>(data, uid: K, db);
   wrapParams<K extends keyof AllTypes, T extends AllTypes[K]>(
     params: Params<T>,
     { uid: K, action: EntityServiceAction }

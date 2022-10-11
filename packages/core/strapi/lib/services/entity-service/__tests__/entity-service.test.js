@@ -194,78 +194,91 @@ describe('Entity service', () => {
       const entityUID = 'api::entity.entity';
       const relationUID = 'api::relation.relation';
       const fakeEntities = {
-        0: {
-          id: 0,
-          Name: 'TestEntity',
-          createdAt: '2022-09-28T15:11:22.995Z',
-          updatedAt: '2022-09-29T09:01:02.949Z',
-          publishedAt: null,
+        [entityUID]: {
+          0: {
+            id: 0,
+            Name: 'TestEntity',
+            createdAt: '2022-09-28T15:11:22.995Z',
+            updatedAt: '2022-09-29T09:01:02.949Z',
+            publishedAt: null,
+          },
         },
-        1: {
-          id: 1,
-          Name: 'TestRelation',
-          createdAt: '2022-09-28T15:11:22.995Z',
-          updatedAt: '2022-09-29T09:01:02.949Z',
-          publishedAt: null,
+        [relationUID]: {
+          1: {
+            id: 1,
+            Name: 'TestRelation',
+            createdAt: '2022-09-28T15:11:22.995Z',
+            updatedAt: '2022-09-29T09:01:02.949Z',
+            publishedAt: null,
+          },
+          2: {
+            id: 2,
+            Name: 'TestRelation2',
+            createdAt: '2022-09-28T15:11:22.995Z',
+            updatedAt: '2022-09-29T09:01:02.949Z',
+            publishedAt: null,
+          },
         },
-        2: null,
       };
       beforeAll(() => {
         const fakeModel = {
-          kind: 'collectionType',
-          modelName: 'entity',
-          collectionName: 'entity',
-          uid: entityUID,
-          privateAttributes: [],
-          options: {},
-          info: {
-            singularName: 'entity',
-            pluralName: 'entities',
-            displayName: 'ENTITY',
-          },
-          attributes: {
-            Name: {
-              type: 'string',
+          [entityUID]: {
+            kind: 'collectionType',
+            modelName: 'entity',
+            collectionName: 'entity',
+            uid: entityUID,
+            privateAttributes: [],
+            options: {},
+            info: {
+              singularName: 'entity',
+              pluralName: 'entities',
+              displayName: 'ENTITY',
             },
-            addresses: {
-              type: 'relation',
-              relation: 'oneToMany',
-              target: relationUID,
-              mappedBy: 'entity',
-            },
-            updatedBy: {
-              type: 'relation',
-              relation: 'oneToOne',
-              target: 'admin::user',
-              configurable: false,
-              writable: false,
-              visible: false,
-              useJoinTable: false,
-              private: true,
+            attributes: {
+              Name: {
+                type: 'string',
+              },
+              addresses: {
+                type: 'relation',
+                relation: 'oneToMany',
+                target: relationUID,
+                mappedBy: 'entity',
+              },
             },
           },
         };
 
-        const fakeQuery = {
-          findOne: jest.fn(({ where }) => fakeEntities[where.id]),
+        const fakeQuery = (key) => ({
+          findOne: jest.fn(({ where }) => fakeEntities[key][where.id]),
+          findWithCount: jest.fn(({ where }) => {
+            const ret = [];
+            where.id.$in.forEach((id) => {
+              const entity = fakeEntities[key][id];
+              if (!entity) return;
+              ret.push(entity);
+            });
+            return [ret, ret.length];
+          }),
           update: jest.fn(({ where }) => ({
-            ...fakeEntities[where.id],
+            ...fakeEntities[key][where.id],
             addresses: {
               count: 1,
             },
           })),
-        };
+        });
 
         const fakeDB = {
-          query: jest.fn(() => fakeQuery),
+          query: jest.fn((key) => fakeQuery(key)),
         };
 
-        const fakeStrapi = {
-          getModel: jest.fn(() => fakeModel),
+        global.strapi = {
+          getModel: jest.fn((uid) => {
+            return fakeModel[uid];
+          }),
         };
 
         instance = createEntityService({
-          strapi: fakeStrapi,
+          strapi: global.strapi,
           db: fakeDB,
           eventHub: null, // bypass event emission for update tests
           entityValidator,
@@ -278,7 +291,7 @@ describe('Entity service', () => {
         ).toBeNull();
       });
 
-      test('should successfully update with an existing relation', async () => {
+      test('should successfully update an existing relation', async () => {
         const data = {
           Name: 'TestEntry',
           addresses: {
@@ -288,10 +301,9 @@ describe('Entity service', () => {
               },
             ],
           },
-          updatedBy: 1,
         };
         expect(await instance.update(entityUID, 0, { data })).toMatchObject({
-          ...fakeEntities[0],
+          ...fakeEntities[entityUID][0],
           addresses: {
             count: 1,
           },
@@ -304,11 +316,10 @@ describe('Entity service', () => {
           addresses: {
             connect: [
               {
-                id: 2,
+                id: 3,
               },
             ],
           },
-          updatedBy: 1,
         };
 
         await expect(instance.update(entityUID, 0, { data })).rejects.toThrow();
